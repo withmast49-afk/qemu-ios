@@ -45,6 +45,7 @@ jobs:
             --disable-docs --disable-werror \
             --disable-sdl --disable-gtk --disable-capstone --disable-fuse \
             --enable-slirp \
+            --extra-ldflags="-lcrypto" \
             --cc="ccache gcc" --python=python3
 
       - name: Build qemu-system-arm
@@ -101,6 +102,7 @@ jobs:
             mingw-w64-ucrt-x86_64-libslirp
             mingw-w64-ucrt-x86_64-dtc
             mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-openssl
 
       - name: Configure
         run: |
@@ -109,7 +111,8 @@ jobs:
             --target-list=arm-softmmu \
             --disable-docs --disable-werror \
             --disable-sdl --disable-gtk --disable-capstone \
-            --enable-slirp
+            --enable-slirp \
+            --extra-ldflags="-lcrypto"
 
       - name: Build
         run: |
