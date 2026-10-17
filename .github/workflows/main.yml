@@ -1,0 +1,144 @@
+name: build-qemu-ios
+
+# Dat file nay o: .github/workflows/build.yml  (trong fork cua ong)
+# Chay: tab Actions -> build-qemu-ios -> Run workflow
+# Tick "windows" neu muon thu them ban Windows (MSYS2, rat de fail, chi de thu).
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: "Thu them ban Windows (MSYS2)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: [".github/workflows/build.yml"]
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Cai thu vien
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build pkg-config git flex bison ccache \
+            python3 python3-venv python3-pip python3-setuptools \
+            libglib2.0-dev libpixman-1-dev libslirp-dev libssl-dev \
+            zlib1g-dev libfdt-dev
+          # Khong dung ffmpeg: WSL moi khong con libavcodec.so.60.
+          # Meson coi libavcodec la tuy chon, thieu thi bo cau H.264/AAC cua guest.
+          sudo apt-get remove -y libavcodec-dev libavutil-dev || true
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-arm-softmmu
+
+      - name: Configure
+        run: |
+          mkdir build && cd build
+          ../configure \
+            --target-list=arm-softmmu \
+            --disable-docs --disable-werror \
+            --disable-sdl --disable-gtk --disable-capstone --disable-fuse \
+            --enable-slirp \
+            --extra-ldflags="-lcrypto" \
+            --cc="ccache gcc" --python=python3
+
+      - name: Build qemu-system-arm
+        run: |
+          cd build
+          ninja qemu-system-arm
+
+      - name: In cac thu vien binary phu thuoc (khong duoc co libav)
+        run: |
+          ldd build/qemu-system-arm | tee ldd.txt
+          if grep -qi libav ldd.txt; then echo "CANH BAO: van con libav" ; fi
+
+      - name: Kiem tra may Apple co trong danh sach khong
+        run: |
+          ./build/qemu-system-arm -M help | grep -i -E "ipod|iphone|ipad|n18|n88" || true
+          ./build/qemu-system-arm --version
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-system-arm-linux
+          path: build/qemu-system-arm
+
+      - name: Upload log neu fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-linux
+          path: |
+            build/meson-logs/
+            build/config.log
+          if-no-files-found: ignore
+
+  windows:
+    if: ${{ inputs.windows }}
+    runs-on: windows-2022
+    continue-on-error: true
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git base-devel flex bison
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pip
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-pixman
+            mingw-w64-ucrt-x86_64-libslirp
+            mingw-w64-ucrt-x86_64-dtc
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-openssl
+
+      - name: Configure
+        run: |
+          mkdir build && cd build
+          ../configure \
+            --target-list=arm-softmmu \
+            --disable-docs --disable-werror \
+            --disable-sdl --disable-gtk --disable-capstone \
+            --enable-slirp \
+            --extra-ldflags="-lcrypto"
+
+      - name: Build
+        run: |
+          cd build
+          ninja qemu-system-arm
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-system-arm-windows
+          path: build/qemu-system-arm.exe
+
+      - name: Upload log neu fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-windows
+          path: |
+            build/meson-logs/
+            build/config.log
+          if-no-files-found: ignore
